@@ -196,7 +196,7 @@ class GlucoseMonitor: ObservableObject {
             if timeSinceLast >= 300 {
                 delay = 5.0
             } else {
-                delay = 300.0 - timeSinceLast + 3.0
+                delay = 300.0 - timeSinceLast + 2.2
             }
         } else {
             delay = 10.0
