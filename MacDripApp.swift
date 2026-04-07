@@ -15,7 +15,7 @@ struct MacDripApp: App {
         MenuBarExtra {
             MacDripMenuView(monitor: monitor)
         } label: {
-            Text("🩸 \(monitor.displayString)")
+            Text(monitor.menuBarTitle)
                 .foregroundColor(monitor.glucoseColor)
         }
         .menuBarExtraStyle(.window) 
@@ -187,6 +187,15 @@ struct MacDripMenuView: View {
 class GlucoseMonitor: ObservableObject {
     @Published var displayString: String = "Loading..."
     @Published var history: [GlucosePoint] = [] 
+    @Published var isLowPredicted: Bool = false
+    
+    var menuBarTitle: String {
+        if isLowPredicted && !displayString.contains("Error") && !displayString.contains("Loading") {
+            return "⚠️ LOW PREDICTED: \(displayString)"
+        } else {
+            return "🩸 \(displayString)"
+        }
+    } 
     
     var apiSecret: String { UserDefaults.standard.string(forKey: "apiSecret") ?? "" }
     var manualIP: String { UserDefaults.standard.string(forKey: "manualIP") ?? "" }
@@ -380,17 +389,21 @@ class GlucoseMonitor: ObservableObject {
         
         let predictedIn30 = current.glucose + (dropRatePerMinute * 30.0)
         
-        if let lastAlert = lastAlertTime, Date().timeIntervalSince(lastAlert) < 1800 {
-            return 
-        }
-        
         // Trigger conditions:
         // 1. Prediction crosses user threshold
         // 2. The blood sugar is actively dropping (dropRate is negative)
         // 3. Current glucose isn't super high (we don't care if dropping from 14 to 8)
         let threshold = lowThreshold == 0 ? 4.0 : lowThreshold // Failsafe for 0
+        let isLow = predictedIn30 <= threshold && dropRatePerMinute < -0.02 && current.glucose < 7.0
         
-        if predictedIn30 <= threshold && dropRatePerMinute < -0.02 && current.glucose < 7.0 {
+        DispatchQueue.main.async {
+            self.isLowPredicted = isLow
+        }
+        
+        if isLow {
+            if let lastAlert = lastAlertTime, Date().timeIntervalSince(lastAlert) < 1800 {
+                return 
+            }
             triggerNotification(current: current.glucose, predicted: predictedIn30)
             lastAlertTime = Date()
         }
