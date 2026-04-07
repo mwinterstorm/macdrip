@@ -16,6 +16,7 @@ struct MacDripApp: App {
             MacDripMenuView(monitor: monitor)
         } label: {
             Text("🩸 \(monitor.displayString)")
+                .foregroundColor(monitor.glucoseColor)
         }
         .menuBarExtraStyle(.window) 
     }
@@ -88,6 +89,7 @@ struct MacDripMenuView: View {
                     
                     Text(monitor.displayString)
                         .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(monitor.glucoseColor)
                     
                     if let lastDate = monitor.history.last?.date {
                         let minutesAgo = max(0, Int(Date().timeIntervalSince(lastDate) / 60.0))
@@ -169,6 +171,19 @@ class GlucoseMonitor: ObservableObject {
     var lowThreshold: Double { UserDefaults.standard.double(forKey: "lowThreshold") }
     
     var lastAlertTime: Date?
+    
+    var glucoseColor: Color {
+        guard let latest = history.last?.glucose else { return .primary }
+        if latest > 15.0 {
+            return .red
+        } else if latest > 10.0 {
+            return .orange
+        } else if latest < 4.0 {
+            return .blue
+        } else {
+            return .primary
+        }
+    }
     
     var yAxisBounds: [Double] {
         guard !history.isEmpty else { return [3.0, 12.0] }
