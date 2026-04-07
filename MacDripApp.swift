@@ -265,20 +265,23 @@ class GlucoseMonitor: ObservableObject {
                 self.history = newHistory
                 
                 if let latest = newHistory.last, let latestJson = jsonArray.first {
+                    let ageSeconds = Int(Date().timeIntervalSince(latest.date))
+                    let ageMinutes = ageSeconds / 60
+                    
                     let direction = latestJson["direction"] as? String ?? ""
-                    self.displayString = String(format: "%.1f %@", latest.glucose, self.arrow(direction))
+                    if ageMinutes >= 15 {
+                        self.displayString = String(format: "⏳ %.1f (Stale)", latest.glucose)
+                    } else {
+                        self.displayString = String(format: "%.1f %@", latest.glucose, self.arrow(direction))
+                    }
                     
                     if let old = oldLatestDate {
                         if latest.date > old {
-                            let ageSeconds = Int(Date().timeIntervalSince(latest.date))
-                            let ageMinutes = ageSeconds / 60
                             print("✅ Received new data! Data is \(ageMinutes) min \(ageSeconds % 60) sec old.")
                         } else {
-                            print("⏳ No new data yet.")
+                            print("⏳ No new data yet. (Latest is \(ageMinutes) min \(ageSeconds % 60) sec old)")
                         }
                     } else {
-                        let ageSeconds = Int(Date().timeIntervalSince(latest.date))
-                        let ageMinutes = ageSeconds / 60
                         print("✅ Received initial data! Data is \(ageMinutes) min \(ageSeconds % 60) sec old.")
                     }
                     
