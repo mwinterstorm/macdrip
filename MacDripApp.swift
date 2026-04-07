@@ -3,6 +3,9 @@ import AppKit
 import CryptoKit
 import Charts
 
+// Change this version string to easily update the version number shown in the app
+let appVersion = "1.2.0"
+
 @main
 struct MacDripApp: App {
     @StateObject private var monitor = GlucoseMonitor()
@@ -45,6 +48,7 @@ struct MacDripMenuView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("lowThreshold") private var lowThreshold = 4.0
     @AppStorage("predictionMethod") private var predictionMethod: PredictionMethod = .emaSmoothed
+    @AppStorage("showForecast") private var showForecast = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,6 +79,10 @@ struct MacDripMenuView: View {
                             }
                         }
                         .pickerStyle(.menu)
+                        
+                        Toggle("Show 30-min Forecast on Dashboard", isOn: $showForecast)
+                            .font(.caption)
+                            .padding(.top, 4)
                     }
                     
                     Divider()
@@ -83,7 +91,7 @@ struct MacDripMenuView: View {
                         .onChange(of: launchAtLogin) { toggleLaunchAtLogin() }
                     
                     HStack {
-                        Text("MacDrip v1.1.0")
+                        Text("MacDrip v\(appVersion)")
                             .font(.caption2)
                             .foregroundColor(.gray)
                         Spacer()
@@ -121,6 +129,12 @@ struct MacDripMenuView: View {
                         Text("\(lastDate.formatted(date: .omitted, time: .shortened)) (\(minutesAgo) min ago)")
                             .font(.caption)
                             .foregroundColor(.gray)
+                    }
+                    
+                    if showForecast, let predicted = monitor.predictedGlucoseIn30 {
+                        Text(String(format: "30m Forecast: %.1f", predicted))
+                            .font(.caption)
+                            .foregroundColor(monitor.isLowPredicted ? .red : .blue)
                     }
                     
                     Text("Target: \(manualIP)")
@@ -191,6 +205,7 @@ class GlucoseMonitor: ObservableObject {
     @Published var displayString: String = "Loading..."
     @Published var history: [GlucosePoint] = [] 
     @Published var isLowPredicted: Bool = false
+    @Published var predictedGlucoseIn30: Double?
     
     var menuBarTitle: String {
         if isLowPredicted && !displayString.contains("Error") && !displayString.contains("Loading") {
@@ -401,6 +416,7 @@ class GlucoseMonitor: ObservableObject {
         
         DispatchQueue.main.async {
             self.isLowPredicted = isLow
+            self.predictedGlucoseIn30 = predictedIn30
         }
         
         if isLow {
