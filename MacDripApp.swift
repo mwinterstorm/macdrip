@@ -89,6 +89,13 @@ struct MacDripMenuView: View {
                     Text(monitor.displayString)
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                     
+                    if let lastDate = monitor.history.last?.date {
+                        let minutesAgo = max(0, Int(Date().timeIntervalSince(lastDate) / 60.0))
+                        Text("\(lastDate.formatted(date: .omitted, time: .shortened)) (\(minutesAgo) min ago)")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    
                     Text("Target: \(manualIP)")
                         .font(.caption)
                         .foregroundColor(.gray)
