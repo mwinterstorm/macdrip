@@ -25,22 +25,22 @@ Before running the Mac app, you must expose the local API on your phone:
 3. Enable **Open Web Server** (allows other devices on your Wi-Fi to connect).
 4. Go to **Settings > Cloud Upload > Nightscout Sync (REST-API)** and set an **API Secret**. You will need this password for the Mac app.
 
-## 💻 Mac Setup & Compilation
-This app is designed to be compiled directly via the Swift Command Line, keeping the footprint tiny without needing a massive Xcode project file or a formal Bundle ID.
+## 💻 Mac Setup & Installation
+This app is designed to be compiled directly via the Swift Command Line, keeping the footprint tiny without needing a massive Xcode project file or a formal Bundle ID. An installation script is provided that will compile the binary, create a native macOS Application launcher, and move it to your Applications folder.
 
 Clone the repository:
 ```bash
 git clone https://github.com/mwinterstorm/macdrip.git
 cd macdrip
 ```
-Compile the app:
+
+Run the installation script:
 ```bash
-swiftc MacDripApp.swift -parse-as-library -o macdrip-app
+chmod +x install.sh
+./install.sh
 ```
-Run in the background:
-```bash
-./macdrip-app &
-```
+
+Once installed, you can open Spotlight (Cmd + Space) and search for 'Start MacDrip' to launch the app.
 
 ## 🛠 Usage
 1. Click the 🩸 icon in your macOS menu bar.
