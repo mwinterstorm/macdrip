@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import CryptoKit
-import Charts 
+import Charts
 
 @main
 struct MacDripApp: App {
@@ -21,7 +21,7 @@ struct MacDripApp: App {
     }
 }
 
-// --- structure to hold each point on the graph ---
+// --- A structure to hold each point on the graph ---
 struct GlucosePoint: Identifiable {
     let id = UUID()
     let date: Date
@@ -34,8 +34,9 @@ struct MacDripMenuView: View {
     @State private var showingSettings = false
     
     @AppStorage("apiSecret") private var apiSecret = ""
-    @AppStorage("manualIP") private var manualIP = "192.168.88.83"
+    @AppStorage("manualIP") private var manualIP = ""
     @AppStorage("launchAtLogin") private var launchAtLogin = false
+    @AppStorage("lowThreshold") private var lowThreshold = 4.0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,8 +51,16 @@ struct MacDripMenuView: View {
                     
                     Divider()
                     
-                    TextField("Phone IP Address (Local or Tailscale)", text: $manualIP)
+                    TextField("Phone IP Address", text: $manualIP)
                         .textFieldStyle(.roundedBorder)
+                    
+                    // Settings UI for the predictive alert
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Predictive Low Alert Threshold (mmol/L):")
+                            .font(.caption)
+                        TextField("e.g. 4.0", value: $lowThreshold, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                    }
                     
                     Divider()
                     
@@ -146,32 +155,25 @@ struct MacDripMenuView: View {
 // --- 2. DATA ENGINE ---
 class GlucoseMonitor: ObservableObject {
     @Published var displayString: String = "Loading..."
-    @Published var history: [GlucosePoint] = [] // Array to hold graph data
+    @Published var history: [GlucosePoint] = [] 
     
     var apiSecret: String { UserDefaults.standard.string(forKey: "apiSecret") ?? "" }
-    var manualIP: String { UserDefaults.standard.string(forKey: "manualIP") ?? "192.168.88.83" }
+    var manualIP: String { UserDefaults.standard.string(forKey: "manualIP") ?? "" }
+    var lowThreshold: Double { UserDefaults.standard.double(forKey: "lowThreshold") }
     
-// --- Dynamic Graph Scaling Logic ---
+    var lastAlertTime: Date?
+    
     var yAxisBounds: [Double] {
         guard !history.isEmpty else { return [3.0, 12.0] }
-        
         let minG = history.map { $0.glucose }.min() ?? 3.0
         let maxG = history.map { $0.glucose }.max() ?? 12.0
-        
-        // 1. Round down min value to nearest whole number (e.g., 2.8 -> 2.0)
-        // Ensure the graph bottom never goes higher than 3.0
         let dynamicMin = min(3.0, floor(minG))
-        
-        // 2. Round up max value to nearest even whole number
-        let ceilMax = ceil(maxG) // e.g., 14.1 -> 15.0
-        let evenMax = Int(ceilMax) % 2 == 0 ? ceilMax : ceilMax + 1.0 // 15.0 -> 16.0
-        
-        // Ensure the graph top never goes lower than 12.0
+        let ceilMax = ceil(maxG)
+        let evenMax = Int(ceilMax) % 2 == 0 ? ceilMax : ceilMax + 1.0
         let dynamicMax = max(12.0, evenMax)
-        
         return [dynamicMin, dynamicMax]
     }
-
+    
     init() {
         fetch()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in self.fetch() }
@@ -183,7 +185,6 @@ class GlucoseMonitor: ObservableObject {
     }
     
     func fetch() {
-        // Get last 36 records (3 hours of 5-minute data)
         guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=36") else { return }
         var request = URLRequest(url: url)
         request.setValue(sha1(apiSecret), forHTTPHeaderField: "api-secret")
@@ -201,11 +202,10 @@ class GlucoseMonitor: ObservableObject {
             
             var newHistory: [GlucosePoint] = []
             
-            // build the graph
             for item in jsonArray {
                 if let rawSgv = item["sgv"],
                    let sgv = (rawSgv as? NSNumber)?.doubleValue ?? Double(String(describing: rawSgv)),
-                   let timeMs = item["date"] as? Double { // xDrip sends time in milliseconds
+                   let timeMs = item["date"] as? Double {
                     
                     let mmol = sgv / 18.018
                     let date = Date(timeIntervalSince1970: timeMs / 1000.0)
@@ -213,22 +213,66 @@ class GlucoseMonitor: ObservableObject {
                 }
             }
             
-            // Sort  chronologically (oldest to newest) 
             newHistory.sort { $0.date < $1.date }
             
             DispatchQueue.main.async {
                 self.history = newHistory
                 
-                // Update the menu bar text with the most recent reading (the last one in our sorted list)
                 if let latest = newHistory.last, let latestJson = jsonArray.first {
                     let direction = latestJson["direction"] as? String ?? ""
                     self.displayString = String(format: "%.1f %@", latest.glucose, self.arrow(direction))
+                    
+                    self.checkPredictions()
                 } else {
                     self.displayString = "SGV Error"
                 }
             }
         }.resume()
     }
+    
+    // --- PREDICTION ENGINE ---
+    func checkPredictions() {
+        guard history.count >= 4 else { return }
+        
+        let current = history.last!
+        let past = history[history.count - 4] 
+        
+        let timeDiffMinutes = current.date.timeIntervalSince(past.date) / 60.0
+        guard timeDiffMinutes > 0 else { return }
+        
+        let dropRatePerMinute = (current.glucose - past.glucose) / timeDiffMinutes
+        
+        let predictedIn30 = current.glucose + (dropRatePerMinute * 30.0)
+        
+        if let lastAlert = lastAlertTime, Date().timeIntervalSince(lastAlert) < 1800 {
+            return 
+        }
+        
+        // Trigger conditions:
+        // 1. Prediction crosses user threshold
+        // 2. The blood sugar is actively dropping (dropRate is negative)
+        // 3. Current glucose isn't super high (we don't care if dropping from 14 to 8)
+        let threshold = lowThreshold == 0 ? 4.0 : lowThreshold // Failsafe for 0
+        
+        if predictedIn30 <= threshold && dropRatePerMinute < -0.02 && current.glucose < 7.0 {
+            triggerNotification(current: current.glucose, predicted: predictedIn30)
+            lastAlertTime = Date()
+        }
+    }
+    
+    func triggerNotification(current: Double, predicted: Double) {
+        let message = String(format: "Currently %.1f and dropping. Predicted to hit %.1f in 30 minutes.", current, predicted)
+        let script = "display notification \"\(message)\" with title \"🩸 Upcoming Low Warning\""
+        
+        var error: NSDictionary?
+        if let appleScript = NSAppleScript(source: script) {
+            appleScript.executeAndReturnError(&error)
+            if let err = error {
+                print("Notification Error: \(err)")
+            }
+        }
+    }
+    // ----------------------------------
     
     func arrow(_ dir: String) -> String {
         let arrows = ["Flat": "→", "SingleUp": "↑", "DoubleUp": "↑↑", "FortyFiveUp": "↗", 
