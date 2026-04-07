@@ -196,7 +196,7 @@ class GlucoseMonitor: ObservableObject {
             if timeSinceLast >= 300 {
                 delay = 5.0
             } else {
-                delay = 300.0 - timeSinceLast + 1.5
+                delay = 300.0 - timeSinceLast + 3.0
             }
         } else {
             delay = 10.0
@@ -214,11 +214,15 @@ class GlucoseMonitor: ObservableObject {
     
     func fetch() {
         fetchTimer?.invalidate()
+        let oldLatestDate = self.history.last?.date
         
         guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=36") else { 
             scheduleNextFetch()
             return 
         }
+        
+        print("Fetching data at \(Date().formatted(date: .omitted, time: .standard))...")
+        
         var request = URLRequest(url: url)
         request.setValue(sha1(apiSecret), forHTTPHeaderField: "api-secret")
         
@@ -263,6 +267,20 @@ class GlucoseMonitor: ObservableObject {
                 if let latest = newHistory.last, let latestJson = jsonArray.first {
                     let direction = latestJson["direction"] as? String ?? ""
                     self.displayString = String(format: "%.1f %@", latest.glucose, self.arrow(direction))
+                    
+                    if let old = oldLatestDate {
+                        if latest.date > old {
+                            let ageSeconds = Int(Date().timeIntervalSince(latest.date))
+                            let ageMinutes = ageSeconds / 60
+                            print("✅ Received new data! Data is \(ageMinutes) min \(ageSeconds % 60) sec old.")
+                        } else {
+                            print("⏳ No new data yet.")
+                        }
+                    } else {
+                        let ageSeconds = Int(Date().timeIntervalSince(latest.date))
+                        let ageMinutes = ageSeconds / 60
+                        print("✅ Received initial data! Data is \(ageMinutes) min \(ageSeconds % 60) sec old.")
+                    }
                     
                     self.checkPredictions()
                 } else {
