@@ -8,8 +8,6 @@ Native macOS UI: Built with modern SwiftUI for a clean, resource-light menu bar 
 
 Zero-Cloud Dependency: Queries the xDrip local web server directly. Your health data never leaves your local router.
 
-Subnet Auto-Discovery: Seamlessly handles dynamic IPs. If your phone's IP changes, MacDrip scans the local subnet and automatically reconnects to port 17580.
-
 Secure Authentication: Implements SHA-1 hashing via Apple's CryptoKit to securely pass the API Secret to the xDrip server.
 
 Launch at Login: Generates a silent macOS LaunchAgent to ensure the app starts automatically in the background when you boot your Mac.
@@ -59,7 +57,7 @@ Click Settings.
 
 Enter your plain-text API Secret (the app will hash it securely before sending).
 
-If you know your phone's local IP, enter it manually. Otherwise, enable Auto-Discover to let the Mac find your phone automatically.
+Enter your phone's local IP.
 
 Click Save & Return to see your live glucose data.
 

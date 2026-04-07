@@ -26,8 +26,7 @@ struct MacDripMenuView: View {
     @State private var showingSettings = false
     
     @AppStorage("apiSecret") private var apiSecret = ""
-    @AppStorage("manualIP") private var manualIP = ""
-    @AppStorage("isAutoDiscover") private var isAutoDiscover = false
+    @AppStorage("manualIP") private var manualIP = "192.168.88.83"
     @AppStorage("launchAtLogin") private var launchAtLogin = false
 
     var body: some View {
@@ -42,20 +41,11 @@ struct MacDripMenuView: View {
                     
                     Divider()
                     
-                    Toggle("Auto-Discover Phone on Network", isOn: $isAutoDiscover)
-                    
-                    if !isAutoDiscover {
-                        TextField("Manual Phone IP", text: $manualIP)
-                            .textFieldStyle(.roundedBorder)
-                    } else {
-                        Text("Note: Auto-discover will scan the subnet based on your manual IP (e.g., \(manualIP.components(separatedBy: ".").dropLast().joined(separator: ".")).X).")
-                            .font(.caption2)
-                            .foregroundColor(.gray)
-                    }
+                    TextField("Phone IP Address (Local or Tailscale)", text: $manualIP)
+                        .textFieldStyle(.roundedBorder)
                     
                     Divider()
                     
-                    // FIXED: macOS 14+ modern syntax (no underscore)
                     Toggle("Launch automatically at login", isOn: $launchAtLogin)
                         .onChange(of: launchAtLogin) { toggleLaunchAtLogin() }
                     
@@ -80,15 +70,9 @@ struct MacDripMenuView: View {
                     Text(monitor.displayString)
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                     
-                    if isAutoDiscover {
-                        Text(monitor.isScanning ? "Scanning network..." : "Discovered: \(monitor.discoveredIP.isEmpty ? "Not Found" : monitor.discoveredIP)")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    } else {
-                        Text("Manual IP: \(manualIP)")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
+                    Text("Target: \(manualIP)")
+                        .font(.caption)
+                        .foregroundColor(.gray)
                     
                     Divider()
                         .padding(.vertical, 4)
@@ -131,62 +115,13 @@ struct MacDripMenuView: View {
 // --- 2. THE DATA ENGINE ---
 class GlucoseMonitor: ObservableObject {
     @Published var displayString: String = "Loading..."
-    @Published var isScanning = false
-    @Published var discoveredIP = ""
     
     var apiSecret: String { UserDefaults.standard.string(forKey: "apiSecret") ?? "" }
-    var manualIP: String { UserDefaults.standard.string(forKey: "manualIP") ?? "" }
-    var isAutoDiscover: Bool { UserDefaults.standard.bool(forKey: "isAutoDiscover") }
-    
-    var activeIP: String {
-        return isAutoDiscover ? (discoveredIP.isEmpty ? manualIP : discoveredIP) : manualIP
-    }
+    var manualIP: String { UserDefaults.standard.string(forKey: "manualIP") ?? "192.168.88.83" }
     
     init() {
         fetch()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in self.fetch() }
-    }
-    
-    func startDiscovery() {
-        guard !isScanning else { return }
-        isScanning = true
-        
-        let components = manualIP.split(separator: ".")
-        guard components.count == 4 else {
-            isScanning = false
-            return
-        }
-        let subnetBase = "\(components[0]).\(components[1]).\(components[2])"
-        
-        var foundIP: String? = nil
-        let group = DispatchGroup()
-        
-        for i in 1...254 {
-            let testIP = "\(subnetBase).\(i)"
-            guard let url = URL(string: "http://\(testIP):17580/") else { continue }
-            
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 0.5
-            
-            group.enter()
-            URLSession.shared.dataTask(with: request) { _, response, _ in
-                // FIXED: Just check if it's an HTTP response, without assigning it to an unused variable
-                if response is HTTPURLResponse {
-                    if foundIP == nil { foundIP = testIP }
-                }
-                group.leave()
-            }.resume()
-        }
-        
-        group.notify(queue: .main) {
-            self.isScanning = false
-            if let targetIP = foundIP {
-                self.discoveredIP = targetIP
-                self.fetch()
-            } else {
-                self.displayString = "Scan Failed"
-            }
-        }
     }
     
     func sha1(_ input: String) -> String {
@@ -195,29 +130,24 @@ class GlucoseMonitor: ObservableObject {
     }
     
     func fetch() {
-        if isAutoDiscover && discoveredIP.isEmpty && !isScanning {
-            startDiscovery()
-            return
-        }
-        
-        guard let url = URL(string: "http://\(activeIP):17580/sgv.json?count=1") else { return }
+        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=1") else { return }
         var request = URLRequest(url: url)
         request.setValue(sha1(apiSecret), forHTTPHeaderField: "api-secret")
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if error != nil {
-                self.handleFailure(reason: "Net Error")
+                DispatchQueue.main.async { self.displayString = "Net Error" }
                 return
             }
             guard let data = data else { return }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
                   let latest = json.first else {
-                self.handleFailure(reason: "Auth Error")
+                DispatchQueue.main.async { self.displayString = "Auth Error" }
                 return
             }
             let rawSgv = latest["sgv"]
             guard let sgv = (rawSgv as? NSNumber)?.doubleValue ?? Double(String(describing: rawSgv ?? "")) else {
-                self.handleFailure(reason: "SGV Error")
+                DispatchQueue.main.async { self.displayString = "SGV Error" }
                 return
             }
             
@@ -228,16 +158,6 @@ class GlucoseMonitor: ObservableObject {
                 self.displayString = String(format: "%.1f %@", mmol, self.arrow(direction))
             }
         }.resume()
-    }
-    
-    func handleFailure(reason: String) {
-        DispatchQueue.main.async {
-            self.displayString = reason
-            if self.isAutoDiscover && !self.isScanning {
-                self.discoveredIP = ""
-                self.startDiscovery()
-            }
-        }
     }
     
     func arrow(_ dir: String) -> String {
