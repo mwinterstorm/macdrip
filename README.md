@@ -6,7 +6,7 @@ Unlike standard setups that require bouncing medical data through a cloud-hosted
 ## ✨ Features
 - **Native macOS UI**: Built with modern SwiftUI for a clean, resource-light menu bar popover.
 - **Smart Dynamic Polling**: Adapts its polling interval based on the age of the local data. 
-- **Predictive Low Alerts**: Acts as an early warning system. By calculating the rate of change over the last 15 minutes, MacDrip predicts where your glucose will be in 30 minutes. If it crosses your custom threshold, it uses a lightweight AppleScript engine to throw a native macOS notification, keeping you safe without complex App Store bundles.
+- **Predictive Low Alerts**: Acts as an early warning system. MacDrip predicts where your glucose will be in 30 minutes using your choice of an Exponential Moving Average (EMA) or a classic linear rate of change. If it crosses your custom threshold, it throws a native macOS notification and prominently updates the menu bar icon to `⚠️ LOW PREDICTED`, keeping you safe without complex App Store bundles.
 - **Stale Data Warnings & Timestamps**: Displays exactly how many minutes ago the data was received inside the popover. If the reading becomes older than 15 minutes, the menu bar icon updates to display a `⏳ (Stale)` warning.
 - **Historical Graph**: Uses Swift Charts to display a dynamically scaled graphical representation of your glucose readings over the last 3 hours.
 - **Zero-Cloud Dependency**: Queries the xDrip local web server directly. Your health data never leaves your local router.
