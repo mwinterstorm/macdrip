@@ -48,7 +48,10 @@ Once installed, you can open Spotlight (Cmd + Space) and search for 'Start MacDr
 3. Enter your plain-text **API Secret** (the app will hash it securely before sending).
 4. Enter your phone's **IP Address** (Local or Tailscale).
 5. Set your **Predictive Low Alert Threshold** (e.g. 4.0 mmol/L).
-6. Click **Save & Return** to see your live glucose data.
+6. Select your **Prediction Method** (this algorithm calculates your rate of change to trigger early warnings):
+   - **EMA Smoothed** *(Default/Recommended)*: Uses an Exponential Moving Average to actively filter out sensor noise and calculate the true underlying direction. Excellent at preventing "false alarms" caused by a single bad reading.
+   - **Linear (Classic)**: Looks strictly at the raw drop over the last 15 minutes. It is highly sensitive but more prone to false alarms if your blood sugar is naturally varying or leveling out.
+7. Click **Save & Return** to see your live glucose data.
 
 ## ⚠️ Troubleshooting
 - **"Scan Failed" / "Net Error"**: Your Mac cannot reach the phone. Ensure the phone's screen is recently active, they are on the same Wi-Fi, and that your office/cafe router does not have "Client Isolation" turned on.

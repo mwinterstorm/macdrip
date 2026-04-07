@@ -29,6 +29,12 @@ struct GlucosePoint: Identifiable {
     let glucose: Double
 }
 
+enum PredictionMethod: String, CaseIterable, Identifiable {
+    case linear = "Linear (Classic)"
+    case emaSmoothed = "EMA Smoothed"
+    var id: Self { self }
+}
+
 // --- 1. THE UI CONTROLLER ---
 struct MacDripMenuView: View {
     @ObservedObject var monitor: GlucoseMonitor
@@ -38,6 +44,7 @@ struct MacDripMenuView: View {
     @AppStorage("manualIP") private var manualIP = ""
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("lowThreshold") private var lowThreshold = 4.0
+    @AppStorage("predictionMethod") private var predictionMethod: PredictionMethod = .emaSmoothed
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,6 +68,13 @@ struct MacDripMenuView: View {
                             .font(.caption)
                         TextField("e.g. 4.0", value: $lowThreshold, format: .number)
                             .textFieldStyle(.roundedBorder)
+                            
+                        Picker("Prediction Method", selection: $predictionMethod) {
+                            ForEach(PredictionMethod.allCases) { method in
+                                Text(method.rawValue).tag(method)
+                            }
+                        }
+                        .pickerStyle(.menu)
                     }
                     
                     Divider()
@@ -177,6 +191,7 @@ class GlucoseMonitor: ObservableObject {
     var apiSecret: String { UserDefaults.standard.string(forKey: "apiSecret") ?? "" }
     var manualIP: String { UserDefaults.standard.string(forKey: "manualIP") ?? "" }
     var lowThreshold: Double { UserDefaults.standard.double(forKey: "lowThreshold") }
+    var predictionMethod: String { UserDefaults.standard.string(forKey: "predictionMethod") ?? PredictionMethod.emaSmoothed.rawValue }
     
     var lastAlertTime: Date?
     
@@ -337,7 +352,31 @@ class GlucoseMonitor: ObservableObject {
         let timeDiffMinutes = current.date.timeIntervalSince(past.date) / 60.0
         guard timeDiffMinutes > 0 else { return }
         
-        let dropRatePerMinute = (current.glucose - past.glucose) / timeDiffMinutes
+        var dropRatePerMinute: Double = 0.0
+        let method = PredictionMethod(rawValue: predictionMethod) ?? .emaSmoothed
+        
+        if method == .linear {
+            dropRatePerMinute = (current.glucose - past.glucose) / timeDiffMinutes
+        } else {
+            var ema = 0.0
+            let alpha = 0.3 // Smoothing factor
+            var first = true
+            
+            for i in 1..<history.count {
+                let p1 = history[i-1]
+                let p2 = history[i]
+                let dt = max(1.0, p2.date.timeIntervalSince(p1.date) / 60.0)
+                let rate = (p2.glucose - p1.glucose) / dt
+                
+                if first {
+                    ema = rate
+                    first = false
+                } else {
+                    ema = (alpha * rate) + ((1.0 - alpha) * ema)
+                }
+            }
+            dropRatePerMinute = ema
+        }
         
         let predictedIn30 = current.glucose + (dropRatePerMinute * 30.0)
         
