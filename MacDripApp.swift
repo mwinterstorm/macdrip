@@ -181,9 +181,30 @@ class GlucoseMonitor: ObservableObject {
         return [dynamicMin, dynamicMax]
     }
     
+    var fetchTimer: Timer?
+    
     init() {
         fetch()
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in self.fetch() }
+    }
+    
+    func scheduleNextFetch() {
+        fetchTimer?.invalidate()
+        
+        let delay: TimeInterval
+        if let lastDate = history.last?.date {
+            let timeSinceLast = Date().timeIntervalSince(lastDate)
+            if timeSinceLast >= 300 {
+                delay = 5.0
+            } else {
+                delay = 300.0 - timeSinceLast + 1.5
+            }
+        } else {
+            delay = 10.0
+        }
+        
+        fetchTimer = Timer.scheduledTimer(withTimeInterval: max(1.0, delay), repeats: false) { [weak self] _ in
+            self?.fetch()
+        }
     }
     
     func sha1(_ input: String) -> String {
@@ -192,18 +213,32 @@ class GlucoseMonitor: ObservableObject {
     }
     
     func fetch() {
-        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=36") else { return }
+        fetchTimer?.invalidate()
+        
+        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=36") else { 
+            scheduleNextFetch()
+            return 
+        }
         var request = URLRequest(url: url)
         request.setValue(sha1(apiSecret), forHTTPHeaderField: "api-secret")
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if error != nil {
-                DispatchQueue.main.async { self.displayString = "Net Error" }
+                DispatchQueue.main.async { 
+                    self.displayString = "Net Error"
+                    self.scheduleNextFetch()
+                }
                 return
             }
-            guard let data = data else { return }
+            guard let data = data else { 
+                DispatchQueue.main.async { self.scheduleNextFetch() }
+                return 
+            }
             guard let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-                DispatchQueue.main.async { self.displayString = "Auth Error" }
+                DispatchQueue.main.async { 
+                    self.displayString = "Auth Error"
+                    self.scheduleNextFetch()
+                }
                 return
             }
             
@@ -233,6 +268,8 @@ class GlucoseMonitor: ObservableObject {
                 } else {
                     self.displayString = "SGV Error"
                 }
+                
+                self.scheduleNextFetch()
             }
         }.resume()
     }
