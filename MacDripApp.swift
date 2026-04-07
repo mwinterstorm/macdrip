@@ -83,6 +83,9 @@ struct MacDripMenuView: View {
                         .onChange(of: launchAtLogin) { toggleLaunchAtLogin() }
                     
                     HStack {
+                        Text("MacDrip v1.1.0")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
                         Spacer()
                         Button("Save & Return") {
                             showingSettings = false
