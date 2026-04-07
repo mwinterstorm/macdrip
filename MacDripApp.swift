@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CryptoKit
+import Charts 
 
 @main
 struct MacDripApp: App {
@@ -20,6 +21,13 @@ struct MacDripApp: App {
     }
 }
 
+// --- structure to hold each point on the graph ---
+struct GlucosePoint: Identifiable {
+    let id = UUID()
+    let date: Date
+    let glucose: Double
+}
+
 // --- 1. THE UI CONTROLLER ---
 struct MacDripMenuView: View {
     @ObservedObject var monitor: GlucoseMonitor
@@ -32,6 +40,7 @@ struct MacDripMenuView: View {
     var body: some View {
         VStack(spacing: 0) {
             if showingSettings {
+                // --- SETTINGS VIEW ---
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Preferences")
                         .font(.headline)
@@ -61,6 +70,7 @@ struct MacDripMenuView: View {
                 .padding()
                 
             } else {
+                // --- MAIN DASHBOARD VIEW ---
                 VStack(spacing: 12) {
                     Text("CURRENT GLUCOSE")
                         .font(.caption)
@@ -73,6 +83,27 @@ struct MacDripMenuView: View {
                     Text("Target: \(manualIP)")
                         .font(.caption)
                         .foregroundColor(.gray)
+                    
+                    // --- CHART ---
+                    if !monitor.history.isEmpty {
+                        Chart(monitor.history) { point in
+                            LineMark(
+                                x: .value("Time", point.date),
+                                y: .value("Glucose", point.glucose)
+                            )
+                            .foregroundStyle(Color.blue.gradient)
+                            .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                            
+                            PointMark(
+                                x: .value("Time", point.date),
+                                y: .value("Glucose", point.glucose)
+                            )
+                            .foregroundStyle(Color.blue)
+                        }
+                        .frame(height: 120)
+                        .chartYScale(domain: monitor.yAxisBounds)
+                        .padding(.top, 10)
+                    }
                     
                     Divider()
                         .padding(.vertical, 4)
@@ -90,7 +121,7 @@ struct MacDripMenuView: View {
                 .padding()
             }
         }
-        .frame(width: 300) 
+        .frame(width: 320) 
     }
     
     func toggleLaunchAtLogin() {
@@ -112,13 +143,35 @@ struct MacDripMenuView: View {
     }
 }
 
-// --- 2. THE DATA ENGINE ---
+// --- 2. DATA ENGINE ---
 class GlucoseMonitor: ObservableObject {
     @Published var displayString: String = "Loading..."
+    @Published var history: [GlucosePoint] = [] // Array to hold graph data
     
     var apiSecret: String { UserDefaults.standard.string(forKey: "apiSecret") ?? "" }
     var manualIP: String { UserDefaults.standard.string(forKey: "manualIP") ?? "192.168.88.83" }
     
+// --- Dynamic Graph Scaling Logic ---
+    var yAxisBounds: [Double] {
+        guard !history.isEmpty else { return [3.0, 12.0] }
+        
+        let minG = history.map { $0.glucose }.min() ?? 3.0
+        let maxG = history.map { $0.glucose }.max() ?? 12.0
+        
+        // 1. Round down min value to nearest whole number (e.g., 2.8 -> 2.0)
+        // Ensure the graph bottom never goes higher than 3.0
+        let dynamicMin = min(3.0, floor(minG))
+        
+        // 2. Round up max value to nearest even whole number
+        let ceilMax = ceil(maxG) // e.g., 14.1 -> 15.0
+        let evenMax = Int(ceilMax) % 2 == 0 ? ceilMax : ceilMax + 1.0 // 15.0 -> 16.0
+        
+        // Ensure the graph top never goes lower than 12.0
+        let dynamicMax = max(12.0, evenMax)
+        
+        return [dynamicMin, dynamicMax]
+    }
+
     init() {
         fetch()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in self.fetch() }
@@ -130,7 +183,8 @@ class GlucoseMonitor: ObservableObject {
     }
     
     func fetch() {
-        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=1") else { return }
+        // Get last 36 records (3 hours of 5-minute data)
+        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=36") else { return }
         var request = URLRequest(url: url)
         request.setValue(sha1(apiSecret), forHTTPHeaderField: "api-secret")
         
@@ -140,22 +194,38 @@ class GlucoseMonitor: ObservableObject {
                 return
             }
             guard let data = data else { return }
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-                  let latest = json.first else {
+            guard let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
                 DispatchQueue.main.async { self.displayString = "Auth Error" }
                 return
             }
-            let rawSgv = latest["sgv"]
-            guard let sgv = (rawSgv as? NSNumber)?.doubleValue ?? Double(String(describing: rawSgv ?? "")) else {
-                DispatchQueue.main.async { self.displayString = "SGV Error" }
-                return
+            
+            var newHistory: [GlucosePoint] = []
+            
+            // build the graph
+            for item in jsonArray {
+                if let rawSgv = item["sgv"],
+                   let sgv = (rawSgv as? NSNumber)?.doubleValue ?? Double(String(describing: rawSgv)),
+                   let timeMs = item["date"] as? Double { // xDrip sends time in milliseconds
+                    
+                    let mmol = sgv / 18.018
+                    let date = Date(timeIntervalSince1970: timeMs / 1000.0)
+                    newHistory.append(GlucosePoint(date: date, glucose: mmol))
+                }
             }
             
-            let mmol = sgv / 18.018
-            let direction = latest["direction"] as? String ?? ""
+            // Sort  chronologically (oldest to newest) 
+            newHistory.sort { $0.date < $1.date }
             
             DispatchQueue.main.async {
-                self.displayString = String(format: "%.1f %@", mmol, self.arrow(direction))
+                self.history = newHistory
+                
+                // Update the menu bar text with the most recent reading (the last one in our sorted list)
+                if let latest = newHistory.last, let latestJson = jsonArray.first {
+                    let direction = latestJson["direction"] as? String ?? ""
+                    self.displayString = String(format: "%.1f %@", latest.glucose, self.arrow(direction))
+                } else {
+                    self.displayString = "SGV Error"
+                }
             }
         }.resume()
     }

@@ -6,6 +6,8 @@ Unlike standard setups that require bouncing medical data through a cloud-hosted
 ## ✨ Features
 Native macOS UI: Built with modern SwiftUI for a clean, resource-light menu bar popover.
 
+Historical Graph: Uses Swift Charts to display a dynamically scaled graphical representation of your glucose readings over the last 3 hours.
+
 Zero-Cloud Dependency: Queries the xDrip local web server directly. Your health data never leaves your local router.
 
 Secure Authentication: Implements SHA-1 hashing via Apple's CryptoKit to securely pass the API Secret to the xDrip server.
