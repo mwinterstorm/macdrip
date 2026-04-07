@@ -194,7 +194,7 @@ class GlucoseMonitor: ObservableObject {
         if let lastDate = history.last?.date {
             let timeSinceLast = Date().timeIntervalSince(lastDate)
             if timeSinceLast >= 300 {
-                delay = 5.0
+                delay = 2.2
             } else {
                 delay = 300.0 - timeSinceLast + 2.2
             }
