@@ -35,6 +35,7 @@ struct GlucosePoint: Identifiable {
 enum PredictionMethod: String, CaseIterable, Identifiable {
     case linear = "Linear (Classic)"
     case emaSmoothed = "EMA Smoothed"
+    case weightedSlope = "Weighted Slope"
     var id: Self { self }
 }
 
@@ -47,7 +48,7 @@ struct MacDripMenuView: View {
     @AppStorage("manualIP") private var manualIP = ""
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("lowThreshold") private var lowThreshold = 4.0
-    @AppStorage("predictionMethod") private var predictionMethod: PredictionMethod = .emaSmoothed
+    @AppStorage("predictionMethod") private var predictionMethod: PredictionMethod = .weightedSlope
     @AppStorage("showForecast") private var showForecast = false
 
     var body: some View {
@@ -131,7 +132,13 @@ struct MacDripMenuView: View {
                             .foregroundColor(.gray)
                     }
                     
-                    if showForecast, let predicted = monitor.predictedGlucoseIn30 {
+                    if monitor.isCompressionLow {
+                        Text("⚠️ Compression Low Detected")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .fontWeight(.medium)
+                            .padding(.top, 4)
+                    } else if showForecast, let predicted = monitor.predictedGlucoseIn30 {
                         Text(String(format: "30m Forecast: %.1f", predicted))
                             .font(.caption)
                             .foregroundColor(monitor.isLowPredicted ? .red : .blue)
@@ -206,9 +213,12 @@ class GlucoseMonitor: ObservableObject {
     @Published var history: [GlucosePoint] = [] 
     @Published var isLowPredicted: Bool = false
     @Published var predictedGlucoseIn30: Double?
+    @Published var isCompressionLow: Bool = false
     
     var menuBarTitle: String {
-        if isLowPredicted && !displayString.contains("Error") && !displayString.contains("Loading") {
+        if isCompressionLow {
+            return "⚠️ COMPRESSION LOW"
+        } else if isLowPredicted && !displayString.contains("Error") && !displayString.contains("Loading") {
             return "⚠️ LOW PREDICTED: \(displayString)"
         } else {
             return "🩸 \(displayString)"
@@ -218,7 +228,7 @@ class GlucoseMonitor: ObservableObject {
     var apiSecret: String { UserDefaults.standard.string(forKey: "apiSecret") ?? "" }
     var manualIP: String { UserDefaults.standard.string(forKey: "manualIP") ?? "" }
     var lowThreshold: Double { UserDefaults.standard.double(forKey: "lowThreshold") }
-    var predictionMethod: String { UserDefaults.standard.string(forKey: "predictionMethod") ?? PredictionMethod.emaSmoothed.rawValue }
+    var predictionMethod: String { UserDefaults.standard.string(forKey: "predictionMethod") ?? PredictionMethod.weightedSlope.rawValue }
     
     var lastAlertTime: Date?
     
@@ -370,6 +380,36 @@ class GlucoseMonitor: ObservableObject {
     }
     
     // --- PREDICTION ENGINE ---
+    func calculateWeightedRate() -> Double {
+        guard history.count >= 5 else { 
+            if history.count >= 2 {
+                let pCurrent = history.last!
+                let pPast = history[history.count - 2]
+                let dt = max(1.0, pCurrent.date.timeIntervalSince(pPast.date) / 60.0)
+                return (pCurrent.glucose - pPast.glucose) / dt
+            }
+            return 0.0 
+        }
+        
+        let weights: [Double] = [1.5, 1.2, 1.0, 0.8] // Weights for last 4 intervals
+        var totalWeightedRate = 0.0
+        var weightSum = 0.0
+        
+        for i in 0..<4 {
+            let index = history.count - 1 - i
+            let pCurrent = history[index]
+            let pPast = history[index - 1]
+            
+            let dt = max(1.0, pCurrent.date.timeIntervalSince(pPast.date) / 60.0)
+            let rate = (pCurrent.glucose - pPast.glucose) / dt
+            
+            totalWeightedRate += (rate * weights[i])
+            weightSum += weights[i]
+        }
+        
+        return totalWeightedRate / weightSum
+    }
+
     func checkPredictions() {
         guard history.count >= 4 else { return }
         
@@ -380,11 +420,11 @@ class GlucoseMonitor: ObservableObject {
         guard timeDiffMinutes > 0 else { return }
         
         var dropRatePerMinute: Double = 0.0
-        let method = PredictionMethod(rawValue: predictionMethod) ?? .emaSmoothed
+        let method = PredictionMethod(rawValue: predictionMethod) ?? .weightedSlope
         
         if method == .linear {
             dropRatePerMinute = (current.glucose - past.glucose) / timeDiffMinutes
-        } else {
+        } else if method == .emaSmoothed {
             var ema = 0.0
             let alpha = 0.3 // Smoothing factor
             var first = true
@@ -403,18 +443,28 @@ class GlucoseMonitor: ObservableObject {
                 }
             }
             dropRatePerMinute = ema
+        } else {
+            dropRatePerMinute = calculateWeightedRate()
+        }
+        
+        // 1. Compression Low guard
+        if dropRatePerMinute < -1.0 {
+            DispatchQueue.main.async {
+                self.isCompressionLow = true
+                self.isLowPredicted = false
+                self.predictedGlucoseIn30 = nil
+            }
+            return
         }
         
         let predictedIn30 = current.glucose + (dropRatePerMinute * 30.0)
         
-        // Trigger conditions:
-        // 1. Prediction crosses user threshold
-        // 2. The blood sugar is actively dropping (dropRate is negative)
-        // 3. Current glucose isn't super high (we don't care if dropping from 14 to 8)
+        // Trigger condition based on Time-to-Low logic
         let threshold = lowThreshold == 0 ? 4.0 : lowThreshold // Failsafe for 0
-        let isLow = predictedIn30 <= threshold && dropRatePerMinute < -0.02 && current.glucose < 7.0
+        let isLow = predictedIn30 <= threshold && dropRatePerMinute < -0.02
         
         DispatchQueue.main.async {
+            self.isCompressionLow = false
             self.isLowPredicted = isLow
             self.predictedGlucoseIn30 = predictedIn30
         }

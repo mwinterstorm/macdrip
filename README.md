@@ -6,7 +6,8 @@ Unlike standard setups that require bouncing medical data through a cloud-hosted
 ## ✨ Features
 - **Native macOS UI**: Built with modern SwiftUI for a clean, resource-light menu bar popover.
 - **Smart Dynamic Polling**: Adapts its polling interval based on the age of the local data. 
-- **Predictive Low Alerts**: Acts as an early warning system. MacDrip predicts where your glucose will be in 30 minutes using your choice of an Exponential Moving Average (EMA) or a classic linear rate of change. If it crosses your custom threshold, it throws a native macOS notification and prominently updates the menu bar icon to `⚠️ LOW PREDICTED`, keeping you safe without complex App Store bundles.
+- **Predictive Low Alerts**: Acts as an early warning system. MacDrip utilizes advanced modeling algorithms—including a physiological Weighted Slope—to predict if your glucose will hit a critical low within a 30-minute timeframe. It features a built-in safety guard that automatically flags unphysiological "Compression Lows". If a valid drop triggers the 'Time-to-Low' math, the app throws a native macOS notification and prominently updates the menu bar icon to `⚠️ LOW PREDICTED`.
+- **Dashboard Forecast**: You can toggle on a specific 30-minute forecast to see your predicted future level directly within the drop-down menu.
 - **Stale Data Warnings & Timestamps**: Displays exactly how many minutes ago the data was received inside the popover. If the reading becomes older than 15 minutes, the menu bar icon updates to display a `⏳ (Stale)` warning.
 - **Historical Graph**: Uses Swift Charts to display a dynamically scaled graphical representation of your glucose readings over the last 3 hours.
 - **Zero-Cloud Dependency**: Queries the xDrip local web server directly. Your health data never leaves your local router.
@@ -48,10 +49,12 @@ Once installed, you can open Spotlight (Cmd + Space) and search for 'Start MacDr
 3. Enter your plain-text **API Secret** (the app will hash it securely before sending).
 4. Enter your phone's **IP Address** (Local or Tailscale).
 5. Set your **Predictive Low Alert Threshold** (e.g. 4.0 mmol/L).
-6. Select your **Prediction Method** (this algorithm calculates your rate of change to trigger early warnings):
-   - **EMA Smoothed** *(Default/Recommended)*: Uses an Exponential Moving Average to actively filter out sensor noise and calculate the true underlying direction. Excellent at preventing "false alarms" caused by a single bad reading.
-   - **Linear (Classic)**: Looks strictly at the raw drop over the last 15 minutes. It is highly sensitive but more prone to false alarms if your blood sugar is naturally varying or leveling out.
-7. Click **Save & Return** to see your live glucose data.
+6. Toggle **Show 30-min Forecast on Dashboard** to display the predicted value directly within your main UI.
+7. Select your **Prediction Method** (this calculates your rate of change for the 'Time-to-Low' triggers):
+   - **Weighted Slope** *(Default/Recommended)*: A physiological weighted approach that heavily prioritizes your most recent sensor reading while smoothing previous data, offering the best balance of speed and noise reduction.
+   - **EMA Smoothed**: Uses an Exponential Moving Average to filter out noise and calculate the underlying direction.
+   - **Linear (Classic)**: Looks strictly at the raw drop over the last 15 minutes. It is highly sensitive but prone to false alarms.
+8. Click **Save & Return** to see your live glucose data.
 
 ## ⚠️ Troubleshooting
 - **"Scan Failed" / "Net Error"**: Your Mac cannot reach the phone. Ensure the phone's screen is recently active, they are on the same Wi-Fi, and that your office/cafe router does not have "Client Isolation" turned on.
