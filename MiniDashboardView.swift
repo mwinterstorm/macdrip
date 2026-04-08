@@ -17,6 +17,13 @@ struct MiniDashboardView: View {
                 }
             }
             
+            if let lastDate = monitor.history.last?.date {
+                let minutesAgo = max(0, Int(Date().timeIntervalSince(lastDate) / 60.0))
+                Text("\(lastDate.formatted(date: .omitted, time: .shortened)) (\(minutesAgo) min ago)")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            
             if monitor.isCompressionLow {
                 Text("⚠️ Compression Low Detected")
                     .font(.caption)
@@ -40,7 +47,7 @@ struct MiniDashboardView: View {
                         .symbolSize(30)
                 }
                 .frame(height: 120)
-                .chartYScale(domain: monitor.yAxisBounds)
+                .chartYScale(domain: monitor.yAxisBounds(for: chartData))
             } else {
                 Text("No data available")
                     .foregroundColor(.gray)

@@ -90,7 +90,7 @@ struct ContentView: View {
                     .foregroundStyle(Color.blue)
                 }
                 .frame(maxHeight: 300)
-                .chartYScale(domain: monitor.yAxisBounds)
+                .chartYScale(domain: monitor.yAxisBounds(for: chartData))
                 .padding()
             } else {
                 Text("No data available yet.")
@@ -147,6 +147,7 @@ struct SettingsView: View {
     @AppStorage("lowThreshold") private var lowThreshold = 4.0
     @AppStorage("predictionMethod") private var predictionMethod: PredictionMethod = .weightedSlope
     @AppStorage("showForecast") private var showForecast = false
+    @AppStorage("hideDockIcon") private var hideDockIcon = false
     
     @State private var weeksToSync: Double = 4.0
 
@@ -176,6 +177,9 @@ struct SettingsView: View {
             Section(header: Text("System")) {
                 Toggle("Launch automatically at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { toggleLaunchAtLogin() }
+                
+                Toggle("Hide Dock icon (menu bar only)", isOn: $hideDockIcon)
+                    .onChange(of: hideDockIcon) { applyDockIconVisibility() }
                     
                 Button("Force Refresh") {
                     monitor.fetch()
@@ -195,6 +199,10 @@ struct SettingsView: View {
         .padding()
         .formStyle(.grouped)
         .frame(minWidth: 400, minHeight: 400)
+    }
+    
+    func applyDockIconVisibility() {
+        NSApp.setActivationPolicy(hideDockIcon ? .accessory : .regular)
     }
     
     func toggleLaunchAtLogin() {

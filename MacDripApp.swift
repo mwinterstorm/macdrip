@@ -6,6 +6,11 @@ let appVersion = "2.0.0"
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     // Force macOS to organically boot the AppKit UI lifecycle engine even on unsigned binaries!
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        if UserDefaults.standard.bool(forKey: "hideDockIcon") {
+            NSApp.setActivationPolicy(.accessory)
+        }
+    }
 }
 
 @main

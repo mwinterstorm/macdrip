@@ -48,10 +48,10 @@ class GlucoseMonitor: ObservableObject {
         }
     }
     
-    var yAxisBounds: [Double] {
-        guard !history.isEmpty else { return [3.0, 12.0] }
-        let minG = history.map { $0.glucose }.min() ?? 3.0
-        let maxG = history.map { $0.glucose }.max() ?? 12.0
+    func yAxisBounds(for data: [GlucoseReading]) -> [Double] {
+        guard !data.isEmpty else { return [3.0, 12.0] }
+        let minG = data.map { $0.glucose }.min() ?? 3.0
+        let maxG = data.map { $0.glucose }.max() ?? 12.0
         let dynamicMin = min(3.0, floor(minG))
         let ceilMax = ceil(maxG)
         let evenMax = Int(ceilMax) % 2 == 0 ? ceilMax : ceilMax + 1.0
