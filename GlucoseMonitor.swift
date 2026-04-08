@@ -8,6 +8,7 @@ class GlucoseMonitor: ObservableObject {
     @Published var isLowPredicted: Bool = false
     @Published var predictedGlucoseIn30: Double?
     @Published var isCompressionLow: Bool = false
+    @Published var syncStatus: String?
     
     var menuBarTitle: String {
         if isCompressionLow {
@@ -60,19 +61,43 @@ class GlucoseMonitor: ObservableObject {
     
     var fetchTimer: Timer?
     
+    private var dataFileURL: URL {
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appDir = appSupport.appendingPathComponent("com.macdrip.app", isDirectory: true)
+        if !fileManager.fileExists(atPath: appDir.path) {
+            try? fileManager.createDirectory(at: appDir, withIntermediateDirectories: true, attributes: nil)
+        }
+        return appDir.appendingPathComponent("history.json")
+    }
+    
     init() {
         loadHistory()
         fetch()
     }
     
     func saveHistory() {
-        if let data = try? JSONEncoder().encode(history) {
-            UserDefaults.standard.set(data, forKey: "glucoseHistoryJSON")
+        // Offload large writes to a background thread conceptually, but we need memory safety. 
+        // A simple atomic write is mostly instantaneous up to a few MBs.
+        DispatchQueue.global(qos: .background).async {
+            let copy = self.history
+            if let data = try? JSONEncoder().encode(copy) {
+                try? data.write(to: self.dataFileURL, options: .atomic)
+            }
         }
     }
     
     func loadHistory() {
-        if let data = UserDefaults.standard.data(forKey: "glucoseHistoryJSON"),
+        // Migration from legacy UserDefaults if standard file doesn't exist yet
+        if !FileManager.default.fileExists(atPath: dataFileURL.path),
+           let oldData = UserDefaults.standard.data(forKey: "glucoseHistoryJSON"),
+           let decoded = try? JSONDecoder().decode([GlucoseReading].self, from: oldData) {
+            self.history = decoded
+            saveHistory()
+            return
+        }
+        
+        if let data = try? Data(contentsOf: dataFileURL),
            let decoded = try? JSONDecoder().decode([GlucoseReading].self, from: data) {
             self.history = decoded
         }
@@ -100,6 +125,36 @@ class GlucoseMonitor: ObservableObject {
     func sha1(_ input: String) -> String {
         let data = Data(input.utf8)
         return Insecure.SHA1.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+    }
+    
+    private func parseJSON(jsonArray: [[String: Any]]) -> [GlucoseReading] {
+        var incomingData: [GlucoseReading] = []
+        for item in jsonArray {
+            if let rawSgv = item["sgv"],
+               let sgv = (rawSgv as? NSNumber)?.doubleValue ?? Double(String(describing: rawSgv)),
+               let timeMs = item["date"] as? Double {
+                let mmol = sgv / 18.018
+                let date = Date(timeIntervalSince1970: timeMs / 1000.0)
+                
+                let direction = item["direction"] as? String
+                let trend = item["trend"] as? Int
+                let device = item["device"] as? String
+                let type = item["type"] as? String
+                let noise = item["noise"] as? Int
+                let filtered = (item["filtered"] as? NSNumber)?.doubleValue ?? Double(String(describing: item["filtered"] ?? "")) 
+                let unfiltered = (item["unfiltered"] as? NSNumber)?.doubleValue ?? Double(String(describing: item["unfiltered"] ?? ""))
+                let rssi = item["rssi"] as? Int
+                let sysTime = item["sysTime"] as? String ?? item["dateString"] as? String
+                
+                incomingData.append(GlucoseReading(
+                    timestamp: timeMs, date: date, glucose: mmol,
+                    sgv: sgv, direction: direction, trend: trend,
+                    device: device, type: type, noise: noise,
+                    filtered: filtered, unfiltered: unfiltered, rssi: rssi, sysTime: sysTime
+                ))
+            }
+        }
+        return incomingData
     }
     
     func fetch() {
@@ -135,32 +190,7 @@ class GlucoseMonitor: ObservableObject {
                 return
             }
             
-            var incomingData: [GlucoseReading] = []
-            for item in jsonArray {
-                if let rawSgv = item["sgv"],
-                   let sgv = (rawSgv as? NSNumber)?.doubleValue ?? Double(String(describing: rawSgv)),
-                   let timeMs = item["date"] as? Double {
-                    let mmol = sgv / 18.018
-                    let date = Date(timeIntervalSince1970: timeMs / 1000.0)
-                    
-                    let direction = item["direction"] as? String
-                    let trend = item["trend"] as? Int
-                    let device = item["device"] as? String
-                    let type = item["type"] as? String
-                    let noise = item["noise"] as? Int
-                    let filtered = (item["filtered"] as? NSNumber)?.doubleValue ?? Double(String(describing: item["filtered"] ?? "")) 
-                    let unfiltered = (item["unfiltered"] as? NSNumber)?.doubleValue ?? Double(String(describing: item["unfiltered"] ?? ""))
-                    let rssi = item["rssi"] as? Int
-                    let sysTime = item["sysTime"] as? String ?? item["dateString"] as? String
-                    
-                    incomingData.append(GlucoseReading(
-                        timestamp: timeMs, date: date, glucose: mmol,
-                        sgv: sgv, direction: direction, trend: trend,
-                        device: device, type: type, noise: noise,
-                        filtered: filtered, unfiltered: unfiltered, rssi: rssi, sysTime: sysTime
-                    ))
-                }
-            }
+            let incomingData = self.parseJSON(jsonArray: jsonArray)
             
             DispatchQueue.main.async {
                 // Merge data using timestamp as unique key
@@ -171,9 +201,7 @@ class GlucoseMonitor: ObservableObject {
                 var merged = Array(existingDict.values)
                 merged.sort { $0.date < $1.date }
                 
-                // Keep the last 48 hours to prevent JSON bloat, giving us huge history without SQLite
-                let cutoff = Date().addingTimeInterval(-172800)
-                merged = merged.filter { $0.date >= cutoff }
+                // Infinite DB: We DO NOT filter by cutoff date anymore!
                 
                 self.history = merged
                 self.saveHistory()
@@ -194,6 +222,71 @@ class GlucoseMonitor: ObservableObject {
                 }
                 
                 self.scheduleNextFetch()
+            }
+        }.resume()
+    }
+    
+    // --- HISTORICAL PAGINATION ---
+    func syncHistoricalData(weeks: Int) {
+        let totalItems = weeks * 2016 // 7 days * 288 points
+        syncStatus = "Starting deep sync..."
+        
+        // Find existing minimum date to start backwards
+        let minDateMs = history.first?.timestamp.rounded(.down) ?? Date().timeIntervalSince1970 * 1000
+        
+        performPagination(targetCount: totalItems, endTimeMs: minDateMs, accumulated: 0, requestedWeeks: weeks)
+    }
+    
+    private func performPagination(targetCount: Int, endTimeMs: Double, accumulated: Int, requestedWeeks: Int) {
+        if accumulated >= targetCount {
+            DispatchQueue.main.async {
+                self.syncStatus = "Sync Complete!"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.syncStatus = nil }
+            }
+            return
+        }
+        
+        // Nightscout API pagination logic
+        let urlString = "http://\(manualIP):17580/sgv.json?find[date][$lt]=\(Int(endTimeMs))&count=2016"
+        guard let url = URL(string: urlString) else { return }
+        
+        DispatchQueue.main.async {
+            let percentage = min(100, Int((Double(accumulated) / Double(targetCount)) * 100))
+            self.syncStatus = "Syncing week... (\(percentage)%)"
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue(sha1(apiSecret), forHTTPHeaderField: "api-secret")
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            guard let data = data,
+                  let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  !jsonArray.isEmpty else {
+                DispatchQueue.main.async {
+                    self.syncStatus = "Sync reached end of remote database."
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.syncStatus = nil }
+                }
+                return
+            }
+            
+            let incomingData = self.parseJSON(jsonArray: jsonArray)
+            
+            DispatchQueue.main.async {
+                var existingDict = [Double: GlucoseReading]()
+                for reading in self.history { existingDict[reading.timestamp] = reading }
+                for reading in incomingData { existingDict[reading.timestamp] = reading }
+                var merged = Array(existingDict.values)
+                merged.sort { $0.date < $1.date }
+                
+                self.history = merged
+                self.saveHistory() 
+                
+                if let nextEndTimeMs = incomingData.last?.timestamp {
+                    self.performPagination(targetCount: targetCount, endTimeMs: nextEndTimeMs, accumulated: accumulated + incomingData.count, requestedWeeks: requestedWeeks)
+                } else {
+                    self.syncStatus = "Sync finalized early."
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.syncStatus = nil }
+                }
             }
         }.resume()
     }

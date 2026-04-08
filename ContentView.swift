@@ -147,6 +147,8 @@ struct SettingsView: View {
     @AppStorage("lowThreshold") private var lowThreshold = 4.0
     @AppStorage("predictionMethod") private var predictionMethod: PredictionMethod = .weightedSlope
     @AppStorage("showForecast") private var showForecast = false
+    
+    @State private var weeksToSync: Double = 4.0
 
     var body: some View {
         Form {
@@ -187,6 +189,34 @@ struct SettingsView: View {
                     Spacer()
                 }
                 .padding(.top, 10)
+            }
+            
+            Section(header: Text("Database Expansion")) {
+                VStack(alignment: .leading) {
+                    Text("Deep-Sync Historical Data (Weeks)")
+                    HStack {
+                        Slider(value: $weeksToSync, in: 1...52, step: 1)
+                        Text("\(Int(weeksToSync))")
+                            .frame(width: 30)
+                    }
+                }
+                
+                Button(action: {
+                    monitor.syncHistoricalData(weeks: Int(weeksToSync))
+                }) {
+                    HStack {
+                        Text("Start Background Sync")
+                        Spacer()
+                        if let status = monitor.syncStatus {
+                            Text(status)
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+                
+                Text(String(format: "Local Database Size: %d readings", monitor.history.count))
+                    .font(.caption)
+                    .foregroundColor(.gray)
             }
         }
         .padding()
