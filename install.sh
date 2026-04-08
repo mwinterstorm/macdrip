@@ -55,6 +55,10 @@ cat > "$APP_NAME/Contents/Info.plist" << EOF
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>LSUIElement</key>
+    <false/>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>
@@ -71,9 +75,10 @@ echo "🔐 Signing Apple bundle natively..."
 codesign --force --deep --sign - "$APP_NAME" > /dev/null 2>&1
 
 # Move to Applications
-echo "🚀 Moving MacDrip to /Applications..."
+echo "🚀 Moving MacDrip to /Applications... (may ask for password to remove gatekeeper protections)"
 rm -rf "/Applications/$APP_NAME"
 mv "$APP_NAME" /Applications/
+sudo xattr -cr "/Applications/$APP_NAME"
 
 # Optionally clean up
 rm macdrip-app
