@@ -60,6 +60,7 @@ class GlucoseMonitor: ObservableObject {
     }
     
     var fetchTimer: Timer?
+    var hasPerformedInitialDeepFetch = false
     
     private var dataFileURL: URL {
         let fileManager = FileManager.default
@@ -159,8 +160,9 @@ class GlucoseMonitor: ObservableObject {
     
     func fetch() {
         fetchTimer?.invalidate()
+        let fetchCount = self.hasPerformedInitialDeepFetch ? 36 : 1000
         
-        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=36") else { 
+        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=\(fetchCount)") else { 
             scheduleNextFetch()
             return 
         }
@@ -193,7 +195,7 @@ class GlucoseMonitor: ObservableObject {
             let incomingData = self.parseJSON(jsonArray: jsonArray)
             
             DispatchQueue.main.async {
-                // Merge data using timestamp as unique key
+                self.hasPerformedInitialDeepFetch = true
                 var existingDict = [Double: GlucoseReading]()
                 for reading in self.history { existingDict[reading.timestamp] = reading }
                 for reading in incomingData { existingDict[reading.timestamp] = reading }
@@ -229,31 +231,10 @@ class GlucoseMonitor: ObservableObject {
     // --- HISTORICAL PAGINATION ---
     func syncHistoricalData(weeks: Int) {
         let totalItems = weeks * 2016 // 7 days * 288 points
-        syncStatus = "Starting deep sync..."
+        syncStatus = "Starting massive deep sync..."
         
-        // Find existing minimum date to start backwards
-        let minDateMs = history.first?.timestamp.rounded(.down) ?? Date().timeIntervalSince1970 * 1000
-        
-        performPagination(targetCount: totalItems, endTimeMs: minDateMs, accumulated: 0, requestedWeeks: weeks)
-    }
-    
-    private func performPagination(targetCount: Int, endTimeMs: Double, accumulated: Int, requestedWeeks: Int) {
-        if accumulated >= targetCount {
-            DispatchQueue.main.async {
-                self.syncStatus = "Sync Complete!"
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.syncStatus = nil }
-            }
-            return
-        }
-        
-        // Nightscout API pagination logic
-        let urlString = "http://\(manualIP):17580/sgv.json?find[date][$lt]=\(Int(endTimeMs))&count=2016"
+        let urlString = "http://\(manualIP):17580/sgv.json?count=\(totalItems)"
         guard let url = URL(string: urlString) else { return }
-        
-        DispatchQueue.main.async {
-            let percentage = min(100, Int((Double(accumulated) / Double(targetCount)) * 100))
-            self.syncStatus = "Syncing week... (\(percentage)%)"
-        }
         
         var request = URLRequest(url: url)
         request.setValue(sha1(apiSecret), forHTTPHeaderField: "api-secret")
@@ -263,7 +244,7 @@ class GlucoseMonitor: ObservableObject {
                   let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
                   !jsonArray.isEmpty else {
                 DispatchQueue.main.async {
-                    self.syncStatus = "Sync reached end of remote database."
+                    self.syncStatus = "Sync failed or empty API."
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.syncStatus = nil }
                 }
                 return
@@ -281,12 +262,8 @@ class GlucoseMonitor: ObservableObject {
                 self.history = merged
                 self.saveHistory() 
                 
-                if let nextEndTimeMs = incomingData.last?.timestamp {
-                    self.performPagination(targetCount: targetCount, endTimeMs: nextEndTimeMs, accumulated: accumulated + incomingData.count, requestedWeeks: requestedWeeks)
-                } else {
-                    self.syncStatus = "Sync finalized early."
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.syncStatus = nil }
-                }
+                self.syncStatus = "Sync Complete! Recovered \(jsonArray.count) records."
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.syncStatus = nil }
             }
         }.resume()
     }

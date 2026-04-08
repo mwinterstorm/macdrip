@@ -16,8 +16,11 @@ struct MacDripApp: App {
         MenuBarExtra {
             MiniDashboardView(monitor: monitor)
         } label: {
-            Text(monitor.menuBarTitle)
-                .foregroundColor(monitor.glucoseColor)
+            HStack(spacing: 2) {
+                Image(systemName: monitor.isCompressionLow ? "exclamationmark.triangle.fill" : "drop.fill")
+                Text(monitor.menuBarTitle)
+            }
+            .foregroundColor(monitor.glucoseColor)
         }
         .menuBarExtraStyle(.window)  
     }
