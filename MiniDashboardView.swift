@@ -3,6 +3,7 @@ import Charts
 
 struct MiniDashboardView: View {
     @ObservedObject var monitor: GlucoseMonitor
+    @Environment(\.openWindow) private var openWindow
     
     var body: some View {
         VStack(spacing: 8) {
@@ -61,11 +62,8 @@ struct MiniDashboardView: View {
                 Button("Refresh") { monitor.fetch() }
                 Spacer()
                 Button("Open App") {
-                    // Activate standard macOS multi-window layout
+                    openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
-                    for window in NSApp.windows {
-                        window.makeKeyAndOrderFront(nil)
-                    }
                 }
                 .bold()
                 Spacer()

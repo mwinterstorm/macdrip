@@ -19,7 +19,7 @@ struct MacDripApp: App {
     @StateObject private var monitor = GlucoseMonitor()
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView(monitor: monitor)
         }
         
