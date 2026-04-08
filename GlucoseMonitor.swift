@@ -160,14 +160,30 @@ class GlucoseMonitor: ObservableObject {
     
     func fetch() {
         fetchTimer?.invalidate()
-        let fetchCount = self.hasPerformedInitialDeepFetch ? 36 : 1000
         
-        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=\(fetchCount)") else { 
+        if !hasPerformedInitialDeepFetch {
+            // Phase 1: Quick fetch of latest reading to update display immediately
+            performFetch(count: 1) {
+                // Phase 2: Deep fetch to backfill history
+                self.performFetch(count: 1000) {
+                    self.hasPerformedInitialDeepFetch = true
+                    self.scheduleNextFetch()
+                }
+            }
+        } else {
+            performFetch(count: 36) {
+                self.scheduleNextFetch()
+            }
+        }
+    }
+    
+    private func performFetch(count: Int, completion: @escaping () -> Void) {
+        guard let url = URL(string: "http://\(manualIP):17580/sgv.json?count=\(count)") else { 
             scheduleNextFetch()
             return 
         }
         
-        print("Fetching data at \(Date().formatted(date: .omitted, time: .standard))...")
+        print("Fetching \(count) records at \(Date().formatted(date: .omitted, time: .standard))...")
         
         var request = URLRequest(url: url)
         request.setValue(sha1(apiSecret), forHTTPHeaderField: "api-secret")
@@ -195,15 +211,12 @@ class GlucoseMonitor: ObservableObject {
             let incomingData = self.parseJSON(jsonArray: jsonArray)
             
             DispatchQueue.main.async {
-                self.hasPerformedInitialDeepFetch = true
                 var existingDict = [Double: GlucoseReading]()
                 for reading in self.history { existingDict[reading.timestamp] = reading }
                 for reading in incomingData { existingDict[reading.timestamp] = reading }
                 
                 var merged = Array(existingDict.values)
                 merged.sort { $0.date < $1.date }
-                
-                // Infinite DB: We DO NOT filter by cutoff date anymore!
                 
                 self.history = merged
                 self.saveHistory()
@@ -223,7 +236,7 @@ class GlucoseMonitor: ObservableObject {
                     self.displayString = "SGV Error"
                 }
                 
-                self.scheduleNextFetch()
+                completion()
             }
         }.resume()
     }
