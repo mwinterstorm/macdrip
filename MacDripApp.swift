@@ -18,7 +18,7 @@ struct MacDripApp: App {
             ContentView(monitor: monitor)
         }
         
-        MenuBarExtra(monitor.menuBarTitle, systemImage: "drop.fill") {
+        MenuBarExtra(monitor.menuBarTitle, isInserted: .constant(true)) {
             MiniDashboardView(monitor: monitor)
         }
         .menuBarExtraStyle(.window)  
