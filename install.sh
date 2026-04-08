@@ -7,7 +7,7 @@ INSTALL_DIR=$(pwd)
 
 # 2. Compile the Swift binary
 echo "🔨 Compiling Swift application..."
-swiftc MacDripApp.swift -parse-as-library -o macdrip-app
+swiftc *.swift -parse-as-library -o macdrip-app
 
 # 3. Create the AppleScript payload 
 echo "📦 Generating the background launcher..."
