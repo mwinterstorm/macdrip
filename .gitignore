@@ -1,3 +1,5 @@
 macdrip-app
 .DS_Store
 /Start MacDrip.app
+/.build/
+/MacDrip.app
