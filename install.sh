@@ -37,6 +37,8 @@ cat > "$APP_NAME/Contents/Info.plist" << EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleExecutable</key>
     <string>MacDrip</string>
     <key>CFBundleIdentifier</key>
@@ -49,6 +51,8 @@ cat > "$APP_NAME/Contents/Info.plist" << EOF
     <string>2.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSAppTransportSecurity</key>
@@ -61,6 +65,10 @@ cat > "$APP_NAME/Contents/Info.plist" << EOF
 EOF
 
 cp macdrip-app "$APP_NAME/Contents/MacOS/MacDrip"
+
+# Perform an ad-hoc local Code Signature to bypass modern Gatekeeper UI constraints
+echo "🔐 Signing Apple bundle natively..."
+codesign --force --deep --sign - "$APP_NAME" > /dev/null 2>&1
 
 # Move to Applications
 echo "🚀 Moving MacDrip to /Applications..."

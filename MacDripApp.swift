@@ -4,8 +4,13 @@ import Charts
 
 let appVersion = "2.0.0"
 
+class AppDelegate: NSObject, NSApplicationDelegate {
+    // Force macOS to organically boot the AppKit UI lifecycle engine even on unsigned binaries!
+}
+
 @main
 struct MacDripApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var monitor = GlucoseMonitor()
 
     var body: some Scene {
@@ -13,14 +18,8 @@ struct MacDripApp: App {
             ContentView(monitor: monitor)
         }
         
-        MenuBarExtra {
+        MenuBarExtra(monitor.menuBarTitle, systemImage: "drop.fill") {
             MiniDashboardView(monitor: monitor)
-        } label: {
-            HStack(spacing: 2) {
-                Image(systemName: monitor.isCompressionLow ? "exclamationmark.triangle.fill" : "drop.fill")
-                Text(monitor.menuBarTitle)
-            }
-            .foregroundColor(monitor.glucoseColor)
         }
         .menuBarExtraStyle(.window)  
     }
