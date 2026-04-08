@@ -108,14 +108,28 @@ class GlucoseMonitor: ObservableObject {
         fetchTimer?.invalidate()
         let delay: TimeInterval
         if let lastDate = history.last?.date {
-            let timeSinceLast = Date().timeIntervalSince(lastDate)
-            if timeSinceLast >= 300 {
-                delay = 2.2
+            let staleMinutes = Date().timeIntervalSince(lastDate) / 60.0
+            if staleMinutes < 5.0 {
+                // Fresh data: wait for next expected 5-min CGM reading
+                delay = (300.0 - (staleMinutes * 60.0)) + 2.2
+            } else if staleMinutes < 7.0 {
+                // Just missed it, check again soon
+                delay = 10.0
+            } else if staleMinutes < 10.0 {
+                delay = 60.0         // 1 minute
+            } else if staleMinutes < 15.0 {
+                delay = 120.0        // 2 minutes
+            } else if staleMinutes < 30.0 {
+                delay = 300.0        // 5 minutes
+            } else if staleMinutes < 60.0 {
+                delay = 600.0        // 10 minutes
+            } else if staleMinutes < 120.0 {
+                delay = 1800.0       // 30 minutes
             } else {
-                delay = 300.0 - timeSinceLast + 2.2
+                delay = 3600.0       // 60 minutes
             }
         } else {
-            delay = 10.0
+            delay = 60.0
         }
         
         fetchTimer = Timer.scheduledTimer(withTimeInterval: max(1.0, delay), repeats: false) { [weak self] _ in
